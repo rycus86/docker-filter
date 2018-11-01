@@ -26,3 +26,6 @@ jobs:
       sudo: required  # test with Docker installed
       script:
         - go test ./... -v -cover -covermode=count -coverprofile=c.out
+
+env:
+  - GO111MODULE=on
