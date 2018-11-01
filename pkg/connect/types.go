@@ -1,6 +1,7 @@
 package connect
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -52,18 +53,56 @@ type pollResult struct {
 }
 
 type filterFailure struct {
-	error
+	Cause    error
 	Category string
 }
 
 type CriticalFailure filterFailure
 
-func (c CriticalFailure) Error() string {
-	return fmt.Sprintf("%s: %s", c.Category, c.error.Error())
+func (cf CriticalFailure) Error() string {
+	if cf.Category != "" {
+		return fmt.Sprintf("%s: %s", cf.Category, cf.Cause.Error())
+	} else {
+		return cf.Cause.Error()
+	}
+}
+
+func NewCriticalFailure(cause interface{}, category string) CriticalFailure {
+	if cause == nil {
+		panic("no failure cause given")
+	}
+
+	if asError, ok := cause.(error); ok {
+		return CriticalFailure{asError, category}
+	} else {
+		return CriticalFailure{
+			Cause:    errors.New(fmt.Sprintf("%s", cause)),
+			Category: category,
+		}
+	}
 }
 
 type SoftFailure filterFailure
 
-func (c SoftFailure) Error() string {
-	return fmt.Sprintf("%s: %s", c.Category, c.error.Error())
+func (sf SoftFailure) Error() string {
+	if sf.Category != "" {
+		return fmt.Sprintf("%s: %s", sf.Category, sf.Cause.Error())
+	} else {
+		return sf.Cause.Error()
+	}
+}
+
+func NewSoftFailure(cause interface{}, category string) SoftFailure {
+	if cause == nil {
+		panic("no failure cause given")
+	}
+
+	if asError, ok := cause.(error); ok {
+		return SoftFailure{asError, category}
+	} else {
+		return SoftFailure{
+			Cause:    errors.New(fmt.Sprintf("%s", cause)),
+			Category: category,
+		}
+	}
 }

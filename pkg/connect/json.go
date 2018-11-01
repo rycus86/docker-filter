@@ -28,7 +28,7 @@ func FilterAsJson(provideValue func() T, change func(T) T) FilterFunc {
 
 			return res, nil
 		} else {
-			return nil, SoftFailure{err, "JSON"}
+			return nil, NewCriticalFailure(err, "JSON")
 		}
 	}
 }

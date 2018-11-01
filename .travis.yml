@@ -1,0 +1,28 @@
+language: go
+go:
+  - "1.11"
+
+install: skip
+
+jobs:
+  include:
+    - stage: test
+      before_install:
+        - go get github.com/mattn/goveralls
+        - curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
+        - chmod +x ./cc-test-reporter
+        - ./cc-test-reporter before-build
+        - npm install -g snyk
+      script:
+        - go test ./... -v -cover -covermode=count -coverprofile=c.out
+      after_success:
+        # upload coverage stats
+        - $GOPATH/bin/goveralls -coverprofile=c.out -service=travis-ci || exit 0
+        - ./cc-test-reporter after-build --exit-code $TRAVIS_TEST_RESULT || exit 0
+        - snyk test
+        - snyk monitor
+
+    - stage: test
+      sudo: required  # test with Docker installed
+      script:
+        - go test ./... -v -cover -covermode=count -coverprofile=c.out

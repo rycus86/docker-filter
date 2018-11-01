@@ -65,7 +65,8 @@ func (p *Proxy) Process() error {
 		}
 
 		if pair, err := polled.conn.connectToRemote(p); err != nil {
-			return err
+			polled.conn.writeFailedResponse("failed to connect to the remote", err)
+			continue
 
 		} else {
 			go pair.handleRequests()
@@ -136,13 +137,14 @@ func (lc *localConnection) connectToRemote(p *Proxy) (*connectionPair, error) {
 }
 
 func (lc *localConnection) writeFailedResponse(reason string, err error) error {
-	message := fmt.Sprintf("%s:\n  %s", reason, err.Error())
+	message := fmt.Sprintf("{\"message\":\"%s: %s\"}", reason, err.Error())
 	response := &http.Response{
 		StatusCode:    503,
 		ProtoMajor:    1,
 		ProtoMinor:    1,
 		Close:         true,
 		ContentLength: int64(len(message)),
+		Header:        http.Header{"Content-Type": {"application/json"}},
 		Body:          ioutil.NopCloser(strings.NewReader(message)),
 	}
 
@@ -183,7 +185,7 @@ func (cp *connectionPair) handleRequests() {
 
 				for _, handler := range cp.proxy.handlers {
 					if handler.pattern.MatchString(request.URL.Path) {
-						if changedRequest, err := handler.filter(request, body); err != nil {
+						if changedRequest, err := runHandler(handler, request, body); err != nil {
 							if _, ok := err.(CriticalFailure); ok {
 								cp.error("Critical:", "Failed to execute filter on", request.URL, ":", err)
 
@@ -192,7 +194,7 @@ func (cp *connectionPair) handleRequests() {
 								return
 
 							} else {
-								cp.warn("Failed to execute filter on", request.URL, ":", err)
+								cp.warn("Filter warning on", request.URL, ":", err)
 							}
 
 						} else if changedRequest != nil {
@@ -212,6 +214,21 @@ func (cp *connectionPair) handleRequests() {
 			}
 		}
 	}
+}
+
+func runHandler(handler *handler, request *http.Request, body []byte) (changed *http.Request, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			switch r.(type) {
+			case SoftFailure, CriticalFailure:
+				err = r.(error)
+			default:
+				err = NewCriticalFailure(r, "Filter")
+			}
+		}
+	}()
+
+	return handler.filter(request, body)
 }
 
 func (cp *connectionPair) handleResponses() {
