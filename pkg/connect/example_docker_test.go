@@ -18,6 +18,12 @@ import (
 	"testing"
 )
 
+var dockerTestCases = map[string]func(*testing.T){
+	"ContainerCreate": testDockerContainerCreate,
+	"ServiceCreate":   testDockerServiceCreate,
+	"ServiceUpdate":   testDockerServiceUpdate,
+}
+
 func testDockerContainerCreate(t *testing.T) {
 	type configWrapper struct {
 		*container.Config
@@ -392,13 +398,7 @@ func onDockerTearDown() {
 }
 
 func TestDockerMessages(t *testing.T) {
-	cases := map[string]func(*testing.T){
-		"ContainerCreate": testDockerContainerCreate,
-		"ServiceCreate":   testDockerServiceCreate,
-		"ServiceUpdate":   testDockerServiceUpdate,
-	}
-
-	for name, testFunc := range cases {
+	for name, testFunc := range dockerTestCases {
 		if err := onDockerSetup(); err != nil {
 			panic(err)
 		}
