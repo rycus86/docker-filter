@@ -296,7 +296,9 @@ func TestDockerIntegration(t *testing.T) {
 	if version, err := cli.ServerVersion(context.Background()); err != nil {
 		t.Skip("Can not run integration tests:", err)
 	} else {
-		t.Logf("Running Docker integration tests against API version: %s", version.APIVersion)
+		t.Logf(
+			"Running Docker integration tests against version: %s (API: %s)",
+			version.Version, version.APIVersion)
 	}
 
 	integrationDaemonHost = cli.DaemonHost()
