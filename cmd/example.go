@@ -5,8 +5,10 @@ import (
 	"github.com/rycus86/docker-filter/pkg/connect"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	osUser "os/user"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -16,6 +18,9 @@ var (
 	groupFlag    = flag.String("group", "", "Group to own the Unix socket")
 	logLevelFlag = flag.String("log-level", "info", "Log level")
 
+	unixAddress = flag.String("unix", "/var/run/docker.filtered.sock", "Unix socket to listen on")
+	tcpAddress  = flag.String("tcp", ":2375", "TCP address to listen on")
+
 	uid, gid *int
 	logLevel = connect.LogLevel_INFO
 )
@@ -24,39 +29,46 @@ func main() {
 	// set the requested log level
 	connect.SetLogLevel(logLevel)
 
+	// set up our example logger
+	logger := log.New(os.Stdout, "", log.LstdFlags|log.Lmicroseconds)
+
 	// create a new filtering proxy to the Docker daemon API socket
 	p := connect.NewProxy(func() (net.Conn, error) {
 		return net.Dial("unix", "/var/run/docker.sock")
 	})
 
 	// set up a unix socket listener
-	os.Remove("/var/run/docker.filtered.sock")
-	unixListener, err := net.Listen("unix", "/var/run/docker.filtered.sock")
-	if err != nil {
-		log.Println("Failed to bind to the Unix socket:", err)
-	} else {
-		// set up the Unix socket permissions if we can
-		if uid != nil && gid != nil {
-			if err := os.Chown("/var/run/docker.filtered.sock", *uid, *gid); err != nil {
-				log.Println("Failed to set ownership of the Unix socket:", err)
+	if unixAddress != nil {
+		os.Remove(*unixAddress)
+		unixListener, err := net.Listen("unix", *unixAddress)
+		if err != nil {
+			logger.Println("(cli) Failed to bind to the Unix socket:", err)
+		} else {
+			// set up the Unix socket permissions if we can
+			if uid != nil && gid != nil {
+				if err := os.Chown(*unixAddress, *uid, *gid); err != nil {
+					logger.Println("(cli) Failed to set ownership of the Unix socket:", err)
+				}
 			}
+
+			p.AddListener("", unixListener)
+			defer unixListener.Close()
 		}
-
-		p.AddListener("", unixListener)
-		defer unixListener.Close()
 	}
 
-	// set up a TCP listener on the standard Docker TCP port
-	tcpListener, err := net.Listen("tcp", ":2375")
-	if err != nil {
-		log.Println("Failed to bind to the TCP socket:", err)
-	} else {
-		p.AddListener("", tcpListener)
-		defer tcpListener.Close()
+	// set up a TCP listener
+	if tcpAddress != nil {
+		tcpListener, err := net.Listen("tcp", *tcpAddress)
+		if err != nil {
+			logger.Println("(cli) Failed to bind to the TCP socket:", err)
+		} else {
+			p.AddListener("", tcpListener)
+			defer tcpListener.Close()
+		}
 	}
 
-	// register a new filter
-	p.Handle("/containers/create",
+	// register a filter to add labels to new containers
+	p.FilterRequests("/containers/create",
 		connect.FilterAsJson(
 			func() connect.T { return new(map[string]interface{}) },
 			func(req connect.T) connect.T {
@@ -78,8 +90,34 @@ func main() {
 			},
 		))
 
+	p.FilterRequests("/.*", func(req *http.Request, body []byte) (*http.Request, error) {
+		payload := string(body)
+		if strings.HasSuffix(req.URL.Path, "/auth") {
+			// do not log the password from the login request
+			payload = regexp.MustCompile(`"password":".+?"`).ReplaceAllString(payload, `"password":"***"`)
+		}
+
+		logger.Println("(cli) [request ] URL :", req.URL)
+		logger.Println("(cli)            meth:", req.Method)
+		logger.Println("(cli)         headers:", req.Header)
+		logger.Println("(cli)            body:", payload)
+		return nil, nil
+	})
+	p.FilterResponses("/.*", func(resp *http.Response, body []byte) (*http.Response, error) {
+		uri := "<unknown>"
+		if resp.Request != nil {
+			uri = resp.Request.URL.String()
+		}
+
+		logger.Println("(cli) [response] URL :", uri)
+		logger.Println("(cli)            body:", string(body))
+		logger.Println("(cli)         headers:", resp.Header)
+		logger.Println("(cli)            size:", len(body))
+		return nil, nil
+	})
+
 	// start accepting requests
-	log.Panicln(p.Process())
+	logger.Panicln(p.Process())
 
 	// ... try requests with `docker -H localhost version`
 }

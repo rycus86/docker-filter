@@ -16,11 +16,16 @@ type Proxy struct {
 	idx int
 }
 
-type FilterFunc func(req *http.Request, body []byte) (*http.Request, error)
+type RequestFilterFunc func(req *http.Request, body []byte) (*http.Request, error)
+type ResponseFilterFunc func(req *http.Response, body []byte) (*http.Response, error)
+
+type FilterFunc RequestFilterFunc
 
 type handler struct {
 	pattern *regexp.Regexp
-	filter  FilterFunc
+
+	requestFilter  RequestFilterFunc
+	responseFilter ResponseFilterFunc
 }
 
 type localListener struct {
@@ -43,6 +48,9 @@ type connectionPair struct {
 	proxy      *Proxy
 
 	logPrefix string
+
+	upgraded      bool
+	latestRequest *http.Request
 
 	closeAfterResponse bool
 }

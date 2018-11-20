@@ -8,7 +8,7 @@ import (
 
 type T interface{}
 
-func FilterAsJson(provideValue func() T, change func(T) T) FilterFunc {
+func FilterAsJson(provideValue func() T, change func(T) T) RequestFilterFunc {
 	return func(req *http.Request, body []byte) (*http.Request, error) {
 		v := provideValue()
 
