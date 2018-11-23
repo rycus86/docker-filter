@@ -17,7 +17,7 @@ type Proxy struct {
 }
 
 type RequestFilterFunc func(req *http.Request, body []byte) (*http.Request, error)
-type ResponseFilterFunc func(req *http.Response, body []byte) (*http.Response, error)
+type ResponseFilterFunc func(resp *http.Response, body []byte) (*http.Response, error)
 
 type FilterFunc RequestFilterFunc
 
@@ -51,8 +51,6 @@ type connectionPair struct {
 
 	upgraded      bool
 	latestRequest *http.Request
-
-	closeAfterResponse bool
 }
 
 type pollResult struct {

@@ -12,7 +12,6 @@ import (
 	"regexp"
 	"runtime/debug"
 	"strings"
-	"time"
 )
 
 var (
@@ -143,8 +142,6 @@ func (lc *localConnection) connectToRemote(p *Proxy) (*connectionPair, error) {
 		proxy:      p,
 
 		logPrefix: lc.nextLogPrefix(),
-
-		closeAfterResponse: false,
 	}, nil
 }
 
@@ -172,7 +169,7 @@ func (cp *connectionPair) handleRequests() {
 		n, err := cp.localConn.Read(buffer)
 		if err != nil {
 			if cp.upgraded && err == io.EOF {
-				cp.closeAfterResponse = true
+				cp.closeReading()
 				return
 			}
 
@@ -253,7 +250,7 @@ func runRequestHandler(handler *handler, request *http.Request, body []byte) (ch
 }
 
 func (cp *connectionPair) handleResponses() {
-	buffer := make([]byte, 8000)
+	buffer := make([]byte, 16000)
 	reader := &responseReader{r: cp.remoteConn}
 
 	for {
@@ -266,33 +263,24 @@ func (cp *connectionPair) handleResponses() {
 		if n > 0 {
 			data := buffer[0:n]
 
-			response, err := reader.toResponse(cp.latestRequest)
-
-			// TODO allow reading the body of /images/json
-			//if response != nil {
-			//	logger.Println("(cli)         headers:", response.Header)
-			//	logger.Println("(cli)           enc  :", response.TransferEncoding)
-			//}
-
-			// allow filtering a response only if it's not streaming
-			if !cp.upgraded && err == nil && response != nil && (
-				response.ContentLength > 0 ||
-					len(response.TransferEncoding) == 0 ||
-					response.TransferEncoding[0] != "chunked") {
-
-				body, err := ioutil.ReadAll(response.Body)
-				if err != nil {
-					cp.close("response", err)
-					return
-				}
-				response.Body.Close()
-
-				response.Request = cp.latestRequest
-				response.Body = ioutil.NopCloser(bytes.NewReader(body))
-
+			if response, err := reader.toResponse(cp.latestRequest); response != nil && err == nil {
 				requestUrl := "/<unknown>"
 				if response.Request != nil {
 					requestUrl = response.Request.URL.Path
+				}
+
+				var body []byte
+
+				if cp.allowReadingResponseBody(response) {
+					body, err = ioutil.ReadAll(response.Body)
+					if err != nil {
+						cp.close("response", err)
+						return
+					}
+					response.Body.Close()
+
+					response.Request = cp.latestRequest
+					response.Body = ioutil.NopCloser(bytes.NewReader(body))
 				}
 
 				for _, handler := range cp.proxy.handlers {
@@ -338,13 +326,29 @@ func (cp *connectionPair) handleResponses() {
 				cp.debug("Sent response data:", n, "bytes")
 
 			}
-
-			if cp.closeAfterResponse {
-				// TODO this feels really hacky
-				cp.remoteConn.SetReadDeadline(time.Now().Add(1 * time.Millisecond))
-			}
 		}
 	}
+}
+
+func (cp *connectionPair) allowReadingResponseBody(response *http.Response) bool {
+	if cp.upgraded {
+		return false // the connection is upgraded (to raw stream)
+	}
+
+	if response == nil {
+		return false // we couldn't parse the response
+	}
+
+	if response.Request == nil {
+		return false // we don't have the original request
+	}
+
+	url := response.Request.URL.Path
+	if strings.Contains(url, "/wait") {
+		return false // TODO the container wait response block the attach - it seems
+	}
+
+	return true
 }
 
 func runResponseHandler(handler *handler, response *http.Response, body []byte) (changed *http.Response, err error) {

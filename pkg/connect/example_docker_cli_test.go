@@ -22,6 +22,7 @@ var cliTestCases = map[string]func(t *testing.T){
 	"RefuseExec":                testCliRefuseExec,
 	"ServiceCreateWithDefaults": testCliServiceCreateWithDefaults,
 	"DenyAlmostEverything":      testCliDenyAlmostEverything,
+	"FilterResponses":           testCliFilterResponses,
 }
 
 func testCliOverrideRunCommand(t *testing.T) {
@@ -228,6 +229,79 @@ func testCliDenyAlmostEverything(t *testing.T) {
 	expectFailure("stats")
 }
 
+func testCliFilterResponses(t *testing.T) {
+	cliProxy.FilterResponses("/.*", func(resp *http.Response, body []byte) (*http.Response, error) {
+		if resp.Request == nil {
+			t.Error("No request found in the response")
+		}
+
+		for _, noBody := range []string{"/start", "/attach", "/wait"} {
+			if strings.Contains(resp.Request.URL.Path, noBody) {
+				return nil, nil
+			}
+		}
+
+		if len(body) <= 0 {
+			t.Error("No response body received for", resp.Request.URL)
+		}
+
+		return nil, nil
+	})
+
+	go func() {
+		time.Sleep(5 * time.Second)
+		panic("test did not finish in 5 seconds")
+	}()
+
+	t.Run("ListImages", func(pt *testing.T) {
+		pt.Parallel()
+		runDockerCliCommand("images -a")
+	})
+	t.Run("ListContainers", func(pt *testing.T) {
+		pt.Parallel()
+		runDockerCliCommand("ps -a")
+	})
+	t.Run("GetVersion", func(pt *testing.T) {
+		pt.Parallel()
+		runDockerCliCommand("version")
+	})
+	t.Run("RunSimpleCommand", func(pt *testing.T) {
+		pt.Parallel()
+		runDockerCliCommand("run --rm --name test alpine ls")
+	})
+	t.Run("RunWithLongOutput", func(pt *testing.T) {
+		pt.Parallel()
+
+		_, out, _, err := runDockerCliCommand(
+			"run --rm python:2.7-alpine python -u -c",
+			"'import sys\nfor i in range(50000):\n  print '%05d) Testing' % (i+1)\nsys.stdout.flush()'")
+		if err != nil {
+			pt.Error("Failed to execute:", err)
+		}
+		if len(out) != 750000 {
+			pt.Error("Unexpected output length:", len(out))
+		}
+	})
+	t.Run("RunWithLongInput", func(pt *testing.T) {
+		pt.Parallel()
+
+		_, out, ee, err := runDockerCliCommand("run --rm -i alpine cat", func(cmd *exec.Cmd) {
+			str, line := "", "This is thirty characters ...\n"
+			for i := 0; i < 10000; i++ {
+				str += line
+			}
+
+			cmd.Stdin = strings.NewReader(str)
+		})
+		if err != nil {
+			pt.Error("Failed to execute:", err, string(ee))
+		}
+		if len(out) != 300000 {
+			pt.Error("Unexpected output length:", len(out))
+		}
+	})
+}
+
 var (
 	cliListener net.Listener
 	cliProxy    *Proxy
@@ -238,6 +312,11 @@ func runDockerCliCommand(args ...interface{}) (cmd *exec.Cmd, stdout, stderr str
 
 	for _, arg := range args {
 		if s, ok := arg.(string); ok {
+			if s[0] == '\'' && s[len(s)-1] == '\'' {
+				cmdArgs = append(cmdArgs, s[1:len(s)-1])
+				continue
+			}
+
 			for _, part := range strings.Split(s, " ") {
 				if part == "$jsonFmt" {
 					part = "{{ json . }}"

@@ -69,7 +69,7 @@ func main() {
 
 	// register a filter to add labels to new containers
 	p.FilterRequests("/containers/create",
-		connect.FilterAsJson(
+		connect.FilterRequestAsJson(
 			func() connect.T { return new(map[string]interface{}) },
 			func(req connect.T) connect.T {
 				// get the JSON payload
