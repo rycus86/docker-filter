@@ -248,6 +248,13 @@ func testCliFilterResponses(t *testing.T) {
 		return nil, nil
 	})
 
+	if _, _, _, err := runDockerCliCommand("inspect alpine"); err != nil {
+		runDockerCliCommand("pull alpine")
+	}
+	if _, _, _, err := runDockerCliCommand("inspect python:2.7-alpine"); err != nil {
+		runDockerCliCommand("pull python:2.7-alpine")
+	}
+
 	go func() {
 		time.Sleep(5 * time.Second)
 		panic("test did not finish in 5 seconds")

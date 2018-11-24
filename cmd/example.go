@@ -2,6 +2,8 @@ package main
 
 import (
 	"flag"
+	"fmt"
+	"github.com/docker/docker/api/types"
 	"github.com/rycus86/docker-filter/pkg/connect"
 	"log"
 	"net"
@@ -115,6 +117,22 @@ func main() {
 		logger.Println("(cli)            size:", len(body))
 		return nil, nil
 	})
+
+	p.FilterResponses(".*/containers/json",
+		connect.FilterResponseAsJson(
+			func() connect.T { return &[]types.Container{} },
+			func(resp connect.T) connect.T {
+				cs := *resp.(*[]types.Container)
+
+				for idx, c := range cs {
+					fmt.Println("Container:", c)
+					c.Image = "redacted"
+					c.Command = "<cmd>"
+					cs[idx] = c
+				}
+
+				return cs
+			}))
 
 	// start accepting requests
 	logger.Panicln(p.Process())
