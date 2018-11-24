@@ -19,7 +19,7 @@ var (
 	connIndex  = 0
 )
 
-func NewProxy(remote func() (net.Conn, error)) *Proxy {
+func NewProxy(remote func() (net.Conn, error), nonManagedResponses ...string) *Proxy {
 	proxyIndex += 1
 
 	return &Proxy{
@@ -28,6 +28,8 @@ func NewProxy(remote func() (net.Conn, error)) *Proxy {
 		handlers:  []*handler{},
 
 		idx: proxyIndex,
+
+		nonManagedResponses: nonManagedResponses,
 	}
 }
 
@@ -344,8 +346,10 @@ func (cp *connectionPair) allowReadingResponseBody(response *http.Response) bool
 	}
 
 	url := response.Request.URL.Path
-	if strings.Contains(url, "/wait") {
-		return false // TODO the container wait response block the attach - it seems
+	for _, path := range cp.proxy.nonManagedResponses {
+		if strings.Contains(url, path) {
+			return false
+		}
 	}
 
 	return true

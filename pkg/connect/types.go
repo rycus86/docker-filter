@@ -14,6 +14,8 @@ type Proxy struct {
 	handlers  []*handler
 
 	idx int
+
+	nonManagedResponses []string
 }
 
 type RequestFilterFunc func(req *http.Request, body []byte) (*http.Request, error)

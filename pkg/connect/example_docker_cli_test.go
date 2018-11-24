@@ -365,7 +365,7 @@ func onDockerCliSetup() error {
 	}
 	cliListener = listener
 
-	proxy := NewProxy(func() (net.Conn, error) {
+	proxy := NewProxyForDockerCli(func() (net.Conn, error) {
 		return net.Dial("unix", "/var/run/docker.sock")
 	})
 	proxy.AddListener("test", listener)
