@@ -255,11 +255,6 @@ func testCliFilterResponses(t *testing.T) {
 		runDockerCliCommand("pull python:2.7-alpine")
 	}
 
-	go func() {
-		time.Sleep(5 * time.Second)
-		panic("test did not finish in 5 seconds")
-	}()
-
 	t.Run("ListImages", func(pt *testing.T) {
 		pt.Parallel()
 		runDockerCliCommand("images -a")
